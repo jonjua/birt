@@ -23,12 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
@@ -38,6 +33,7 @@ import java.util.zip.ZipInputStream;
 public class RepoGen
 {
 	private final File libDir;
+	private final File addonsDir;
 	private final String groupId;
 	private final String passphrase;
 	private final File repoDir;
@@ -52,14 +48,17 @@ public class RepoGen
 	private final File readmeFile;
 	private final File sourceDir;
 	private final String externalFileName = "./externalRepo.properties";
+	private List<FileInfo> fInfo=new ArrayList<FileInfo>();
+    private  static  Map<String, ExternalDependency> extDep = new HashMap<String, ExternalDependency>();
 	
 	private final Map<String, ExternalDependency> externalDependencies;
 
 	private RepoGen(final File libDir, final File repoParentDir, final String groupId,
 			final String passphrase, final boolean snapshot, final boolean release,
-			final boolean clean, final String rootFileName, final String readmeFilePath , final File sourceDir) throws IOException
+			final boolean clean, final String rootFileName, final String readmeFilePath , final File sourceDir, final File addonsDir) throws IOException
 	{
 		this.libDir = libDir;
+		this.addonsDir = addonsDir;
 		this.groupId = groupId;
 		this.passphrase = passphrase;
 		this.readmeFile = new File(readmeFilePath);
@@ -110,7 +109,8 @@ public class RepoGen
 
 	private void addExternalDependency(final String fileName, final String groupId,
 			final String artifactId, final String version)
-	{
+	{   extDep.put(fileName, new ExternalDependency(fileName, groupId, artifactId,
+            version));
 		externalDependencies.put(fileName, new ExternalDependency(fileName, groupId, artifactId,
 				version));
 	}
@@ -139,6 +139,7 @@ public class RepoGen
 			fr.close();
 		}
 		final String libDirName = properties.getProperty("libDir");
+		final String addonsDirName = properties.getProperty("addonsDir");
 		final String repoDirName = properties.getProperty("repoDir");
 		final String groupId = properties.getProperty("groupId");
 		if (passphrase == null)
@@ -151,7 +152,7 @@ public class RepoGen
 		final String sourceDir = properties.getProperty("sourceDir");
 		
 		final RepoGen repoGen = new RepoGen(new File(libDirName), new File(repoDirName), groupId,
-				passphrase, genSnapshot, genRelease, clean, rootFileName, readmeFilePath, new File(sourceDir));
+				passphrase, genSnapshot, genRelease, clean, rootFileName, readmeFilePath, new File(sourceDir), new File(addonsDirName));
 		repoGen.generate();
 	}
 
@@ -196,6 +197,7 @@ public class RepoGen
 					final FileInfo fileInfo = getFileInfo(file);
 					if (fileInfo != null)
 					{
+					    fInfo.add(fileInfo);
 						fileInfos.add(fileInfo);
 						generateFile(fileInfo, true, globalSnapshotBuildFileWriter,
 							globalSnapshotScriptFileWriter, templateSnapshotPomWriter, null, null);
@@ -203,8 +205,37 @@ public class RepoGen
 							globalReleaseScriptFileWriter, templateReleasePomWriter, null, null);
 					}
 				}
+                extDep.remove(file.getName());
 			}
 		}
+
+		final File[] addons = addonsDir.listFiles();
+	/**
+	 * Handle the jars under addons folder excluding the root file.
+	 */
+		if (addons != null)
+		{
+			for (final File file : addons)
+			{
+				if (rootFileName != null && rootFileName.equals(file.getName()))
+					rootFile = file;
+				else if (!externalDependencies.containsKey(file.getName()))
+				{
+					final FileInfo fileInfo = getFileInfo(file);
+					if (fileInfo != null)
+					{
+						fInfo.add(fileInfo);
+						fileInfos.add(fileInfo);
+						generateFile(fileInfo, true, globalSnapshotBuildFileWriter,
+								globalSnapshotScriptFileWriter, templateSnapshotPomWriter, null, null);
+						generateFile(fileInfo, false, globalReleaseBuildFileWriter,
+								globalReleaseScriptFileWriter, templateReleasePomWriter, null, null);
+					}
+				}
+				extDep.remove(file.getName());
+			}
+		}
+
 		/**
 		 * Handle the root file birt.runtime 
 		 */
